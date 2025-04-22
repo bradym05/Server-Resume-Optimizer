@@ -4,7 +4,7 @@ from docx import Document
 
 from typing import Annotated, Final
 
-from fastapi import FastAPI, UploadFile, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from optimize_resume import ResumeOptimizer
@@ -30,8 +30,10 @@ app.add_middleware(
 
 # Main upload function
 @app.post("/uploadfile/")
-async def create_upload_file(file: UploadFile, job_description: str):
+async def create_upload_file(file: Annotated[UploadFile, File()], job_description: Annotated[str, Form()]):
     # Validate file type
+    print(file.filename)
+    print(job_description)
     if file.filename.endswith(".docx"):
         # Validate job description
         if len(job_description) >= 100:
