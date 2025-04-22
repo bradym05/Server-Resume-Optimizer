@@ -34,7 +34,7 @@ class ResumeOptimizer():
             # Check cache
             if not self.__keyword_cache[attribute]:
                 # Find keywords and update cache
-                self.__keyword_cache[attribute] = self.__keyword_detector.find_keywords(self.resume_text, input_type="string")
+                self.__keyword_cache[attribute] = self.__keyword_detector.find_keywords(keyword_text, input_type="string")
             # Return cached keywords
             return self.__keyword_cache[attribute]
         
