@@ -1,7 +1,11 @@
 from io import BytesIO
+
 from docx import Document
+
 from fastapi import FastAPI, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+
+from optimize_resume import Resume
 
 # List of allowed origins
 origins = [
@@ -27,10 +31,9 @@ async def create_upload_file(file: UploadFile):
     if file.filename.endswith(".docx"):
         # Get file contents
         contents = await file.read()
-        # Create doc
-        resume_document = Document(BytesIO(contents))
-        for paragraph in resume_document.paragraphs:
-            print(paragraph)
+        # Create resume
+        resume_object = Resume(Document(BytesIO(contents)))
+        print(resume_object.get_key_words())
     else:
         # Indicate fail due to invalid file type
         raise HTTPException(status_code=400, detail="Invalid file type")
