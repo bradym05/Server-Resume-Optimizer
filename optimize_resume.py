@@ -32,7 +32,7 @@ class ResumeOptimizer():
         keyword_text = getattr(self, attribute, False)
         if keyword_text and len(keyword_text) > 0:
             # Check cache
-            if not self.__keyword_cache[attribute]:
+            if not AttributeError in self.__keyword_cache.keys():
                 # Find keywords and update cache
                 self.__keyword_cache[attribute] = self.__keyword_detector.find_keywords(keyword_text, input_type="string")
             # Return cached keywords
