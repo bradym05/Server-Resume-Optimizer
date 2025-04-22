@@ -1,4 +1,6 @@
-from fastapi import FastAPI, UploadFile
+from io import BytesIO
+from docx import Document
+from fastapi import FastAPI, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 # List of allowed origins
@@ -21,7 +23,15 @@ app.add_middleware(
 # Main upload function
 @app.post("/uploadfile/")
 async def create_upload_file(file: UploadFile):
-    # Get file contents
-    contents = await file.read()
-    print(contents)
+    # Validate file type
+    if file.filename.endswith(".docx"):
+        # Get file contents
+        contents = await file.read()
+        # Create doc
+        resume_document = Document(BytesIO(contents))
+        for paragraph in resume_document.paragraphs:
+            print(paragraph)
+    else:
+        # Indicate fail due to invalid file type
+        raise HTTPException(status_code=400, detail="Invalid file type")
     return {"filename": file.filename}
