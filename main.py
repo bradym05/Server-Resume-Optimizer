@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # List of allowed origins
 origins = [
-    "https://bradym05.github.io/Resume-Optimizer/",
+    "https://bradym05.github.io",
 ]
 
 # Create FastAPI App Object
@@ -13,7 +13,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
