@@ -11,10 +11,6 @@ RAKUN_HYPERPARAMETERS: Final = {
     "token_prune_len": 3
 }
 
-class TextAttribute(Enum):
-    resume:str = "resume_text"
-    job:str = "job_description"
-
 class ResumeOptimizer():
     """
     Resume Class - Initialize from a valid python-docx Document object
@@ -26,11 +22,11 @@ class ResumeOptimizer():
         self.__keyword_detector = RakunKeyphraseDetector(RAKUN_HYPERPARAMETERS)
         self.__keyword_cache = {}
 
-    def get_keywords(self, attribute: TextAttribute) -> list[Tuple[str, float]]:
+    def get_keywords(self, attribute) -> list[Tuple[str, float]]:
         """
         Extract keywords of given attribute (doc name) with rakun2, cache results
         Args:
-        attribute - TextAttribute class (name = "resume_text" or "job_description")
+        attribute - ("resume_text" or "job_description")
         """
         # Get attribute
         keyword_text = getattr(self, attribute, False)
@@ -47,8 +43,8 @@ class ResumeOptimizer():
         Compare the scores of resume_text and job_description
         """
         # Get keywords
-        job_results = self.get_keywords(TextAttribute.job)
-        resume_results = self.get_keywords(TextAttribute.resume)
+        job_results = self.get_keywords("job_description")
+        resume_results = self.get_keywords("resume_text")
         # Create list of job keywords only
         job_keywords = [keyword_tuple[0] for keyword_tuple in job_results]
         # Results variables
