@@ -1,4 +1,5 @@
 from io import BytesIO
+from uuid import uuid1
 
 from docx import Document
 
@@ -16,6 +17,9 @@ ALLOWED_ORIGINS: Final = [
 # Max job description length
 JOB_DESCRIPTION_MAX_LENGTH: Final = 2000
 
+# Resume storage
+resume_storage = {}
+
 # Create FastAPI App Object
 app = FastAPI()
 
@@ -30,10 +34,9 @@ app.add_middleware(
 
 # Main upload function
 @app.post("/uploadfile/")
-async def create_upload_file(file: Annotated[UploadFile, File()], job_description: Annotated[str, Form()]):
-    # Validate file type
-    print(file.filename)
-    print(job_description)
+async def create_upload_file(file: Annotated[UploadFile, File()], job_description: Annotated[str, Form(max_length=JOB_DESCRIPTION_MAX_LENGTH)]):
+    # Initialize file id
+    file_id = ""
     if file.filename.endswith(".docx"):
         # Validate job description
         if len(job_description) >= 100:
@@ -42,9 +45,13 @@ async def create_upload_file(file: Annotated[UploadFile, File()], job_descriptio
             # Create resume
             resume_object = ResumeOptimizer(Document(BytesIO(contents)), job_description)
             resume_object.compare_keywords()
+            # Create UUID
+            file_id = uuid1()
+            # Reference file
+            resume_storage[file_id] = resume_object
         else:
             raise HTTPException(status_code=401, detail="Job description is too short (minimum 100 characters)")
     else:
         # Indicate fail due to invalid file type
         raise HTTPException(status_code=400, detail="Invalid file type")
-    return {"filename": file.filename}
+    return {"file_id": file_id}
