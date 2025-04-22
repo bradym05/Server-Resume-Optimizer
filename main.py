@@ -4,8 +4,6 @@ from docx import Document
 
 from typing import Annotated, Final
 
-from pydantic import BaseModel
-
 from fastapi import FastAPI, UploadFile, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -30,17 +28,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Resume file and job description
-class UploadFileModel(BaseModel):
-    file: UploadFile
-    job_description: Annotated[str, Query(max_length=JOB_DESCRIPTION_MAX_LENGTH)] = ""
-
 # Main upload function
 @app.post("/uploadfile/")
-async def create_upload_file(request_body: UploadFileModel):
-    # Get request values
-    file = request_body.file
-    job_description = request_body.job_description
+async def create_upload_file(file: UploadFile, job_description: str):
     # Validate file type
     if file.filename.endswith(".docx"):
         # Validate job description
