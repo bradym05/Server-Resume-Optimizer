@@ -6,7 +6,7 @@ from rakun2 import RakunKeyphraseDetector
 
 # Hyperparemeters for rakun2
 RAKUN_HYPERPARAMETERS: Final = {
-    "num_keywords": 20,
+    "num_keywords": 70,
     "merge_threshold": 0.5,
     "alpha": 0.9,
     "token_prune_len": 6
@@ -50,44 +50,45 @@ class ResumeOptimizer():
         sections = {base_names[0]:[] for base_names in ResumeOptimizer.RESUME_SECTIONS}
         sections[current_section] = []
         # Iterate over paragraphs
-        for content in self.resume_doc.iter_inner_content():
-            # Check content type
-            if type(content) == table.Table:
-                # Append all text from all table cells
-                for column in content.columns:
-                    for cell in column.cells:
-                        for paragraph in cell.paragraphs:
-                            # Check if paragraph has content
-                            if paragraph.text.strip():
-                                sections[current_section].append(paragraph.text)
-            else:
-                # Check for blank line (typically between sections on a resume)
-                if not content.text.strip():
-                    new_section = True
-                    continue
-                elif new_section:
-                    new_section = False
-                    # Iterate over section names
-                    for section_names in ResumeOptimizer.RESUME_SECTIONS:
-                        # Check for a match
-                        if any(name in content.text.lower() for name in section_names):
-                            # Update current section name
-                            current_section = section_names[0]
-                            break
+        for paragraph in self.resume_doc.paragraphs:
+            content_paragraph = True
+            # Check for blank line (typically between sections on a resume)
+            if not paragraph.text.strip():
+                new_section = True
+                continue
+            elif new_section:
+                new_section = False
+                # Iterate over section names
+                for section_names in ResumeOptimizer.RESUME_SECTIONS:
+                    # Check for a match
+                    if any(name in paragraph.text.lower() for name in section_names):
+                        # Update current section name
+                        current_section = section_names[0]
+                        content_paragraph = False
+                        break
+            if content_paragraph:
                 # Add text to current section
-                sections[current_section].append(content.text)
+                sections[current_section].append(paragraph.text)
         # Return parsed resume
         return sections
     
     # Compare the keywords of the resume, and job posting
     def compare_keywords(self):
-        # Get job posting keywords first
-        job_keywords = self.__job_keywords.find_keywords(self.job_string, input_type="string")
         # Create resume string
-        resume_string = ""
-        for section_name in ResumeOptimizer.COMPARISON_SECTIONS:
-            resume_string += " ".join(self.__parsed_resume[section_name])
-        # Compare keywords using job keywords as priors
+        resume_string = "\n".join([p.text for p in self.resume_doc.paragraphs])
+        # Get keywords
         resume_keywords = self.__resume_keywords.find_keywords(resume_string, input_type="string")
-        print(resume_string)
-        print(resume_keywords)
+        job_keywords = self.__job_keywords.find_keywords(self.job_string, input_type="string")
+        # Find matching keywords
+        matches = {}
+        job_keyword_text = [keyword_tuple[0] for keyword_tuple in job_keywords]
+        for keyword_tuple in resume_keywords:
+            # Check for match
+            if keyword_tuple[0] in job_keyword_text:
+                # Get match index
+                match_index = job_keyword_text.index(keyword_tuple[0])
+                # Set value to false to speed up matching
+                job_keyword_text[match_index] = False
+                # Set match string to combined value
+                matches[keyword_tuple[0]] = keyword_tuple[1] + job_keywords[match_index][1]
+        print(matches)
