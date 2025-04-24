@@ -3,3 +3,4 @@ Pipfile.lock
 Pipfile
 test_resume.docx
 testing.py
+*.docx
