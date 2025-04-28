@@ -14,8 +14,124 @@ RAKUN_HYPERPARAMETERS: Final = {
     "token_prune_len": 6
 }
 
-# Regex for contact info
+class CompareResume():
+    """
+    Compare Resume
 
+    ...
+
+    Attributes
+    ----------
+    resume_string : str
+        String resume
+    job_string : str
+        String job description
+
+    Methods
+    -------
+    compare():
+        Compare keywords and update attributes
+    get_matches():
+        Returns match dictionary {keyword: match value} from compare()
+    get_match_points():
+        Returns total points accumulated from compare()
+    get_match_percentage():
+        Returns match_points/max_points from compare()
+    get_missed_keywords():
+        Returns a dictionary {missed keyword: match value} of keywords from the job posting which were not in the resume from compare()
+    """
+    def __init__(self, resume_string: str, job_string: str):
+        """
+        Construct a new CompareResume object
+
+        Parameters
+        ----------
+        resume_string : str
+            String resume
+        job_string : str
+            String job description
+
+        """
+        # Set private attributes
+        self.__matches = {}
+        self.__misses = {}
+        self.__match_points = 0
+        self.__max_points = 0
+        # Create Rakun Keywords objects
+        self.__resume_keywords = RakunKeyphraseDetector(RAKUN_HYPERPARAMETERS)
+        self.__job_keywords = RakunKeyphraseDetector(RAKUN_HYPERPARAMETERS)
+        # Set public attributes
+        self.resume_string = resume_string
+        self.job_string = job_string
+    
+    # Getters
+    def get_matches(self) -> Dict[str, float]:
+        """
+        Get matches from compare() results
+        """
+        return self.__matches
+    def get_match_points(self) -> float:
+        """
+        Get match_points from compare() results
+        """
+        return self.__match_points
+    def get_match_percentage(self) -> float:
+        """
+        Get match_points/max_points
+        """
+        return self.__match_points/self.__max_points
+    def get_missed_keywords(self) -> Dict[str, float]:
+        """
+        Get keywords from the job posting which were not in the resume, and their values
+        """
+        missed_keywords = {}
+        resume_keywords = [keyword_tuple[0] for keyword_tuple in self.__resume_keywords.final_keywords]
+        # Iterate over job keywords
+        for keyword_tuple in self.__job_keywords.final_keywords:
+            keyword_string = keyword_tuple[0]
+            if keyword_string in resume_keywords:
+                continue
+            else:
+                missed_keywords[keyword_string] = keyword_tuple[1]
+        return missed_keywords
+
+    # Compare keywords
+    def compare(self):
+        """
+        Main comparison method\n
+        1. Finds keywords with Rakun2
+        2. Finds resume keywords that match with job keywords
+        3. Calculates score per keyword by adding the values from Rakun2
+        """
+        # Get keywords
+        resume_keywords = self.__resume_keywords.find_keywords(self.resume_string, input_type="string")
+        job_keywords = self.__job_keywords.find_keywords(self.job_string, input_type="string")
+        # Initialize results
+        matches = {}
+        match_points = 0
+        max_points = 0
+        job_keyword_text = []
+        # Iterate over job keywords
+        for keyword_tuple in job_keywords:
+            # Update keyword list and max points
+            job_keyword_text.append(keyword_tuple[0])
+            max_points += keyword_tuple[1] * 2
+        # Find matches
+        for keyword_tuple in resume_keywords:
+            # Check for match
+            if keyword_tuple[0] in job_keyword_text:
+                # Get match index
+                match_index = job_keyword_text.index(keyword_tuple[0])
+                # Set value to false to speed up matching
+                job_keyword_text[match_index] = False
+                # Set match string to combined value
+                match_value = keyword_tuple[1] + job_keywords[match_index][1]
+                matches[keyword_tuple[0]] = match_value
+                match_points += match_value
+        # Update attributes
+        self.__match_points = match_points
+        self.__max_points = max_points
+        self.__matches = matches
 
 class ResumeOptimizer():
     """
@@ -29,17 +145,19 @@ class ResumeOptimizer():
         Resume document
     job_string : str
         String job description
-    matches : Dict[str, float]
-        Keyword to value of keyword from compare_keywords()
-
+    
     Methods
     -------
     match_parse_resume():
         [RECOMMENDED] Parses resume by finding words that match predefined section names
     font_parse_resume():
         Parses resume by finding headings or font styles that differ from the base font style
+    get_contact_info():
+        Returns dictionary of contact info from resume after parsing
+    get_urls():
+        Returns list of URLs from resume after parsing
     get_compare_string():
-        Joins resume sections except the header and returns the final string
+        Returns joined resume sections (except header) after parsing
     """
 
     # List of possible resume section names
@@ -49,12 +167,13 @@ class ResumeOptimizer():
         ["qualification", "skill", "credential", "certification", "certificate"],
         ["experience", "history", "project", "work"],
     ]
-    # Regex for contact info (https://uibakery.io/regex-library/)
+    # Regex for contact info
     CONTACT_REGEX: Dict[str, str] = {
-        "phone": "^\\+?\\d{1,4}?[-.\\s]?\\(?\\d{1,3}?\\)?[-.\\s]?\\d{1,4}[-.\\s]?\\d{1,4}[-.\\s]?\\d{1,9}$",
-        "email": r"^\S+@\S+\.\S+$"
+        "phone": r'[\+\(]?[1-9][0-9 .\-\(\)]{8,}[0-9]',
+        "email": r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,3}" #https://www.reddit.com/r/Python/comments/16jj0x9/
     }
-    URL_REGEX: str = r"(?:https?:\/\/)?(?:www\.)?(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)"
+    # URL Regex from https://regex101.com/r/03VgN5/5/
+    URL_REGEX: str = r"\b((?:https?://)?(?:(?:www\.)?(?:[\da-z\.-]+)\.(?:[a-z]{2,6})|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|(?:(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])))(?::[0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])?(?:/[\w\.-]*)*/?)\b"
     # Max length for the title of a section
     MAX_TITLE_LENGTH: int = 50
 
@@ -74,9 +193,6 @@ class ResumeOptimizer():
         self.__missing_contact_info = list(ResumeOptimizer.CONTACT_REGEX.keys())
         self.__contact_info = {}
         self.__urls = []
-        # Create Rakun Keywords objects
-        self.__resume_keywords = RakunKeyphraseDetector(RAKUN_HYPERPARAMETERS)
-        self.__job_keywords = RakunKeyphraseDetector(RAKUN_HYPERPARAMETERS)
         # Set public attributes
         self.resume_doc = resume_doc
         self.job_string = job_string
@@ -88,21 +204,23 @@ class ResumeOptimizer():
         new_section = False
         if contact_info_count > 0:
             # Iterate over missing info
-            new_info = False
+            found_keys = []
             for index in range(contact_info_count):
                 key = self.__missing_contact_info[index]
-                match = re.search(ResumeOptimizer.CONTACT_REGEX[key], text)
-                if match:
+                matches = re.findall(ResumeOptimizer.CONTACT_REGEX[key], text)
+                if matches:
+                    match_string = matches[0]
                     # Update contact info
-                    self.__contact_info[key] = match.string
-                    self.__missing_contact_info.pop(index)
+                    self.__contact_info[key] = match_string
                     # Remove from text
-                    text = text.replace(match.string, "")
-                    # Indicate new info was found
-                    new_info = True
-                    break
+                    text = text.replace(match_string, "")
+                    # Update array of found keys
+                    found_keys.append(key)
+            # Remove found keys from missing contact info
+            for key in found_keys:
+                self.__missing_contact_info.remove(key)
             # Check if more info was found
-            if len(self.__contact_info) > 0 and new_info == False:
+            if len(self.__contact_info) > 0 and len(found_keys) == 0:
                 new_section = True
         else:
             new_section = True
@@ -158,12 +276,11 @@ class ResumeOptimizer():
     def get_urls(self) -> List[str]:
         """Get URLs"""
         return self.__urls
-    def get_compare_string(self) -> str:
+    def get_compare_string(self, parsed_resume : Dict[str, List[str]]) -> str:
         """
         Compile string from Resume, primarily used for compare_keywords() method
         """
         compare_string = ""
-        parsed_resume = self.match_parse_resume()
         # Iterate over sections in parsed resume
         for section_name, section_text_list in parsed_resume.items():
             # Skip the header
@@ -243,33 +360,18 @@ class ResumeOptimizer():
                 current_section = self.__update_sections(paragraph, current_section, sections)
         # Return parsed resume
         return sections
-        
-    # Compare the keywords of the resume, and job posting
-    def compare_keywords(self) -> Dict[str, float]:
-        # Get keywords
-        resume_string = self.get_compare_string()
-        resume_keywords = self.__resume_keywords.find_keywords(resume_string, input_type="string")
-        job_keywords = self.__job_keywords.find_keywords(self.job_string, input_type="string")
-        # Initialize results
-        matches = {}
-        total_points = 0
-        max_points = 0
-        job_keyword_text = []
-        # Iterate over job keywords
-        for keyword_tuple in job_keywords:
-            # Update keyword list and max points
-            job_keyword_text.append(keyword_tuple[0])
-            max_points += keyword_tuple[1] * 2
-        # Find matches
-        for keyword_tuple in resume_keywords:
-            # Check for match
-            if keyword_tuple[0] in job_keyword_text:
-                # Get match index
-                match_index = job_keyword_text.index(keyword_tuple[0])
-                # Set value to false to speed up matching
-                job_keyword_text[match_index] = False
-                # Set match string to combined value
-                match_value = keyword_tuple[1] + job_keywords[match_index][1]
-                matches[keyword_tuple[0]] = match_value
-                total_points += match_value
-        return matches
+    
+    def optimize(self):
+        """
+        Main optimization method\n
+        1. Parses resume with match_parse_resume()
+        2. Compares resume with CompareResume object
+        """
+        # Parse and compile compare string
+        sections = self.match_parse_resume()
+        compare_string = self.get_compare_string(sections)
+        # Create comparison object, and compare
+        comparison_object = CompareResume(compare_string, self.job_string)
+        comparison_object.compare()
+        # Get comparison percentage
+        match_percentage = comparison_object.get_match_percentage()
