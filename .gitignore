@@ -2,6 +2,6 @@
 Pipfile.lock
 Pipfile
 test_resume.docx
-testing.py
+TEST_*
 *.docx
 .env

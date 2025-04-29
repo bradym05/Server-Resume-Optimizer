@@ -1,12 +1,13 @@
 import re
 
 from docx import Document
+from docx.document import Document as DocumentClass
 from docx.table import Table
 
 from typing import Final, Dict, List
 from rakun2 import RakunKeyphraseDetector
 
-# Hyperparemeters for rakun2
+# Hyperparameters for rakun2
 RAKUN_HYPERPARAMETERS: Final = {
     "num_keywords": 70,
     "merge_threshold": 0.5,
@@ -54,7 +55,6 @@ class CompareResume():
         """
         # Set private attributes
         self.__matches = {}
-        self.__misses = {}
         self.__match_points = 0
         self.__max_points = 0
         # Create Rakun Keywords objects
@@ -141,15 +141,15 @@ class ResumeOptimizer():
 
     Attributes
     ----------
-    resume_doc : Document
+    resume_doc : DocumentClass
         Resume document
     job_string : str
         String job description
     
     Methods
     -------
-    match_parse_resume():
-        [RECOMMENDED] Parses resume by finding words that match predefined section names
+    match_parse(document: DocumentClass | str):
+        Parses document by finding words that match predefined section names
     font_parse_resume():
         Parses resume by finding headings or font styles that differ from the base font style
     get_contact_info():
@@ -174,16 +174,17 @@ class ResumeOptimizer():
     }
     # URL Regex from https://regex101.com/r/03VgN5/5/
     URL_REGEX: str = r"\b((?:https?://)?(?:(?:www\.)?(?:[\da-z\.-]+)\.(?:[a-z]{2,6})|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|(?:(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])))(?::[0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])?(?:/[\w\.-]*)*/?)\b"
+    DATES_REGEX: str = r"((\d:[0-9]{2}/)?\d{2}/\d{4})"
     # Max length for the title of a section
     MAX_TITLE_LENGTH: int = 50
 
-    def __init__(self, resume_doc: Document, job_string: str):
+    def __init__(self, resume_doc: DocumentClass, job_string: str):
         """
         Construct a new ResumeOptimizer object
 
         Parameters
         ----------
-        resume_doc : Document
+        resume_doc : DocumentClass
             Resume document
         job_string : str
             String job description
@@ -225,20 +226,9 @@ class ResumeOptimizer():
         else:
             new_section = True
         return text, new_section
-
-    # Update sections dictionary, execute additional operations depending on the section
-    def __update_sections(self, paragraph, current_section: str, sections: Dict[str, List[str | None]]) -> str:
-        # Call process function (if there is one)
-        text = paragraph.text
-        matched_section = None
-        match current_section:
-            case "header":
-                text, new_section = self.__process_header(text)
-                # Check for new section, match if possible
-                if new_section:
-                    matched_section = self.__match_section(text, sections)
-            case "about":
-                text, new_section = self.__process_header(text)
+    
+    # Extract URLs from the given string, append them to private url list
+    def __extract_urls(self, text: str) -> str:
         # Get urls from all text
         url_matches = re.findall(ResumeOptimizer.URL_REGEX, text)
         # Check for matches
@@ -249,6 +239,22 @@ class ResumeOptimizer():
                 if not re.match(ResumeOptimizer.CONTACT_REGEX["email"], url_match) and not url_match in self.__urls:
                     self.__urls.append(url_match)
                     text = text.replace(url_match, "")
+        return text
+
+    # Update sections dictionary, execute additional operations depending on the section
+    def __update_sections(self, text, current_section: str, sections: Dict[str, List[str | None]]) -> str:
+        # Call process function (if there is one)
+        matched_section = None
+        match current_section:
+            case "header":
+                text, new_section = self.__process_header(text)
+                # Check for new section, match if possible
+                if new_section:
+                    matched_section = self.__match_section(text, sections)
+            case "about":
+                text, new_section = self.__process_header(text)
+        # Extract urls
+        text = self.__extract_urls(text)
         # Check if a new section was matched
         if matched_section:
             current_section = matched_section
@@ -279,6 +285,7 @@ class ResumeOptimizer():
     def get_compare_string(self, parsed_resume : Dict[str, List[str]]) -> str:
         """
         Compile string from Resume, primarily used for compare_keywords() method
+        1. Iterate over each section, skipping the header
         """
         compare_string = ""
         # Iterate over sections in parsed resume
@@ -292,19 +299,30 @@ class ResumeOptimizer():
         # Return final compare string
         return compare_string
 
-    # Seperate resume by sections by finding sections from common words
-    def match_parse_resume(self) -> Dict[str, List[str | None]]:
+    # Seperate document/string by sections by finding sections from common words
+    def match_parse(self, document: DocumentClass | str, is_resume: bool = False) -> Dict[str, List[str | None]]:
         """
-        [RECOMMENDED PARSE FUNCTION]
-        Identifies sections, and groups resume content into a dictionary where the keys are the sections
-        Checks for section name matches after blank lines, updates section if there is a match
+        Identifies sections, and groups content into a dictionary where the keys are the sections
+        Checks for section name matches after blank lines, updates section if there is a match.
+
+        Parameters
+        ----------
+        document : DocumentClass | str
+            Document object or string which will be parsed
+        is_resume : bool
+            If True, additional content will be extracted and stored for analysis
         """
         # Initialize variables
         new_section = True
         current_section = "header"
         sections = {current_section : []}
+        # Check section type
+        if type(document) == str:
+            iter_content = document.splitlines
+        else:
+            iter_content = document.iter_inner_content
         # Iterate over paragraphs
-        for inner_content in self.resume_doc.iter_inner_content():
+        for inner_content in iter_content():
             inner_paragraphs = []
             # Check content type
             if type(inner_content) == Table:
@@ -317,47 +335,25 @@ class ResumeOptimizer():
             # Iterate over paragraphs
             for paragraph in inner_paragraphs:
                 body_paragraph = True
+                paragraph_text = paragraph if type(paragraph) == str else paragraph.text
                 # Check for blank line (typically between sections on a resume)
-                if not paragraph.text.strip():
+                if not paragraph_text.strip():
                     new_section = True
                     continue
                 elif new_section:
                     new_section = False
                     # Check for a match
-                    matched_section = self.__match_section(paragraph.text, sections)
+                    matched_section = self.__match_section(paragraph_text, sections)
                     if matched_section:
                         # Update current section name
                         current_section = matched_section
                         body_paragraph = False
                 if body_paragraph:
-                    # Update current section
-                    current_section = self.__update_sections(paragraph, current_section, sections)
-        # Return parsed resume
-        return sections
-
-    # Seperate resume by sections by finding section names with a different font size
-    def font_parse_resume(self) -> Dict[str, List[str | None]]:
-        """
-        Identifies sections, and groups resume content into a dictionary where the keys are the sections.
-        Checks for paragraphs with a font that differs from the rest of the document, or has a style name
-        which contains "Heading".
-        """
-        # Initialize variables
-        current_section = "header"
-        sections = {}
-        sections[current_section] = []
-        # Iterate over paragraphs
-        for paragraph in self.resume_doc.paragraphs:
-            # Check if paragraph text is within max length AND: style name is Heading, font size differs
-            if (len(paragraph.text) <= ResumeOptimizer.MAX_TITLE_LENGTH and 
-                (paragraph.style.name.startswith("Heading") or 
-                 any(run.font.size != None for run in paragraph.runs))):
-                # Update section
-                current_section = paragraph.text
-                sections[current_section] = []
-            else:
-                # Update current section
-                current_section = self.__update_sections(paragraph, current_section, sections)
+                    # Check if this is a resume, update accordingly
+                    if is_resume:
+                        current_section = self.__update_sections(paragraph_text, current_section, sections)
+                    else:
+                        sections[current_section].append(paragraph_text)
         # Return parsed resume
         return sections
     
@@ -367,11 +363,12 @@ class ResumeOptimizer():
         1. Parses resume with match_parse_resume()
         2. Compares resume with CompareResume object
         """
-        # Parse and compile compare string
-        sections = self.match_parse_resume()
-        compare_string = self.get_compare_string(sections)
+        # Parse resume and compile compare string
+        resume_sections = self.match_parse(self.resume_doc, True)
+        compare_string = self.get_compare_string(resume_sections)
         # Create comparison object, and compare
         comparison_object = CompareResume(compare_string, self.job_string)
         comparison_object.compare()
         # Get comparison percentage
         match_percentage = comparison_object.get_match_percentage()
+        return resume_sections
