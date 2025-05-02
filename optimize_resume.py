@@ -1,10 +1,11 @@
 import re
+import math
+import functools
 
-from docx import Document
-from docx.document import Document as DocumentClass
+from docx.document import Document
 from docx.table import Table
 
-from typing import Final, Dict, List
+from typing import Final, Dict, List, Tuple, Optional
 from rakun2 import RakunKeyphraseDetector
 
 # Hyperparameters for rakun2
@@ -32,14 +33,6 @@ class CompareResume():
     -------
     compare():
         Compare keywords and update attributes
-    get_matches():
-        Returns match dictionary {keyword: match value} from compare()
-    get_match_points():
-        Returns total points accumulated from compare()
-    get_match_percentage():
-        Returns match_points/max_points from compare()
-    get_missed_keywords():
-        Returns a dictionary {missed keyword: match value} of keywords from the job posting which were not in the resume from compare()
     """
     def __init__(self, resume_string: str, job_string: str):
         """
@@ -65,24 +58,37 @@ class CompareResume():
         self.job_string = job_string
     
     # Getters
-    def get_matches(self) -> Dict[str, float]:
+    @property
+    def matches(self) -> Dict[str, float]:
         """
-        Get matches from compare() results
+        Dictionary of matched word to value from compare() results
         """
         return self.__matches
-    def get_match_points(self) -> float:
+    @property
+    def match_points(self) -> float:
         """
-        Get match_points from compare() results
+        Total sum of points from compare() results
         """
         return self.__match_points
-    def get_match_percentage(self) -> float:
+    @property
+    def max_points(self) -> float:
         """
-        Get match_points/max_points
+        Maximum points possible from compare() results
+        """
+        return self.__max_points
+    @property
+    @functools.cache
+    def match_percentage(self) -> float:
+        """
+        match_points/max_points
         """
         return self.__match_points/self.__max_points
-    def get_missed_keywords(self) -> Dict[str, float]:
+        
+    @property
+    @functools.cache
+    def missed_keywords(self) -> Dict[str, float]:
         """
-        Get keywords from the job posting which were not in the resume, and their values
+        Keywords from the job posting which were not in the resume, and their values
         """
         missed_keywords = {}
         resume_keywords = [keyword_tuple[0] for keyword_tuple in self.__resume_keywords.final_keywords]
@@ -94,7 +100,42 @@ class CompareResume():
             else:
                 missed_keywords[keyword_string] = keyword_tuple[1]
         return missed_keywords
-
+    @property
+    @functools.cache
+    def job_matches(self) -> List[Tuple[str, float]]:
+        """
+        Dictionary of matched keywords to their value in the job description
+        """
+        job_matches = {}
+        for keyword_tuple in self.__job_keywords.final_keywords:
+            if keyword_tuple[0] in self.matches.keys():
+                job_matches[keyword_tuple[0]] = keyword_tuple[1]
+        return job_matches
+    @property
+    @functools.cache
+    def resume_matches(self) -> Dict[str, float]:
+        """
+        Dictionary of matched keywords to their value in the resume
+        """
+        resume_matches = {}
+        for keyword_tuple in self.__resume_keywords.final_keywords:
+            if keyword_tuple[0] in self.matches.keys():
+                resume_matches[keyword_tuple[0]] = keyword_tuple[1]
+        return resume_matches
+    @property
+    @functools.cache
+    def low_keywords(self) -> Dict[str, float]:
+        """
+        Matched keywords which appeared less on the resume, and more on the job posting
+        Dictionary of keywords to the difference in value (job - resume)
+        """
+        low_keywords = {}
+        for keyword, resume_value in self.resume_matches.items():
+            job_value = self.job_matches[keyword]
+            if job_value > resume_value:
+                low_keywords[keyword] = job_value - resume_value
+        return low_keywords
+        
     # Compare keywords
     def compare(self):
         """
@@ -141,23 +182,20 @@ class ResumeOptimizer():
 
     Attributes
     ----------
-    resume_doc : DocumentClass
+    resume_doc : Document
         Resume document
     job_string : str
         String job description
     
     Methods
     -------
-    match_parse(document: DocumentClass | str):
-        Parses document by finding words that match predefined section names
-    font_parse_resume():
-        Parses resume by finding headings or font styles that differ from the base font style
-    get_contact_info():
-        Returns dictionary of contact info from resume after parsing
-    get_urls():
-        Returns list of URLs from resume after parsing
-    get_compare_string():
-        Returns joined resume sections (except header) after parsing
+    match_parse(parse_string: str, is_resume: bool):
+        Parses text by finding words that match predefined section names
+    get_compare_string(self, parse_results, keys):
+        Returns joined sections (from given keys) from parse results
+    analyze():
+        Parses and compares the resume and job description to provide actionable feedback
+        
     """
 
     # List of possible resume section names
@@ -178,13 +216,13 @@ class ResumeOptimizer():
     # Max length for the title of a section
     MAX_TITLE_LENGTH: int = 50
 
-    def __init__(self, resume_doc: DocumentClass, job_string: str):
+    def __init__(self, resume_doc: Document, job_string: str):
         """
         Construct a new ResumeOptimizer object
 
         Parameters
         ----------
-        resume_doc : DocumentClass
+        resume_doc : Document
             Resume document
         job_string : str
             String job description
@@ -197,6 +235,17 @@ class ResumeOptimizer():
         # Set public attributes
         self.resume_doc = resume_doc
         self.job_string = job_string
+        self.resume_string = ""
+        # Create resume string
+        for inner_content in self.resume_doc.iter_inner_content():
+            # Check content type
+            if type(inner_content) == Table:
+                # Get paragraphs from content cells
+                for column in inner_content.columns:
+                    for cell in column.cells:
+                        self.resume_string += "\n".join(p.text for p in cell.paragraphs)
+            else:
+                self.resume_string += f"\n{inner_content.text}"
 
     # Processing for specific sections (modifies text)
     def __process_header(self, text: str) -> tuple[str, bool]:
@@ -276,39 +325,38 @@ class ResumeOptimizer():
         return matched_section
 
     # Getters
-    def get_contact_info(self) -> Dict[str, str]:
-        """Get contact info"""
+    @property
+    def contact_info(self) -> Dict[str, str]:
+        """Dictionary of contact info from parsing"""
         return self.__contact_info
-    def get_urls(self) -> List[str]:
-        """Get URLs"""
+    @property
+    def urls(self) -> List[str]:
+        """List of all URLs found from parsing"""
         return self.__urls
-    def get_compare_string(self, parsed_resume : Dict[str, List[str]]) -> str:
+    def get_compare_string(self, parse_results: Dict[str, List[str]], keys: Optional[List[str]]=None) -> str:
         """
-        Compile string from Resume, primarily used for compare_keywords() method
-        1. Iterate over each section, skipping the header
+        Compile string from parse results, primarily used for compare_keywords() method
+        1. Iterate over each section that was given in keys
         """
         compare_string = ""
-        # Iterate over sections in parsed resume
-        for section_name, section_text_list in parsed_resume.items():
-            # Skip the header
-            if section_name == "header":
-                continue
-            else:
-                for text in section_text_list:
-                    compare_string += text + "\n"
+        keys = keys if keys else list(parse_results.keys())
+        # Iterate over sections in parse results and append all text to the compare string
+        for section_name in keys:
+            for text in parse_results[section_name]:
+                compare_string += text + "\n"
         # Return final compare string
         return compare_string
 
-    # Seperate document/string by sections by finding sections from common words
-    def match_parse(self, document: DocumentClass | str, is_resume: bool = False) -> Dict[str, List[str | None]]:
+    # Seperate string by sections by finding sections from common words
+    def match_parse(self, parse_string: str, is_resume: bool = False) -> Dict[str, List[str | None]]:
         """
         Identifies sections, and groups content into a dictionary where the keys are the sections
         Checks for section name matches after blank lines, updates section if there is a match.
 
         Parameters
         ----------
-        document : DocumentClass | str
-            Document object or string which will be parsed
+        parse_string : str
+            String which will be parsed
         is_resume : bool
             If True, additional content will be extracted and stored for analysis
         """
@@ -316,59 +364,60 @@ class ResumeOptimizer():
         new_section = True
         current_section = "header"
         sections = {current_section : []}
-        # Check section type
-        if type(document) == str:
-            iter_content = document.splitlines
-        else:
-            iter_content = document.iter_inner_content
-        # Iterate over paragraphs
-        for inner_content in iter_content():
-            inner_paragraphs = []
-            # Check content type
-            if type(inner_content) == Table:
-                # Get paragraphs from content cells
-                for column in inner_content.columns:
-                    for cell in column.cells:
-                        inner_paragraphs.extend(cell.paragraphs)
-            else:
-                inner_paragraphs = [inner_content]
-            # Iterate over paragraphs
-            for paragraph in inner_paragraphs:
-                body_paragraph = True
-                paragraph_text = paragraph if type(paragraph) == str else paragraph.text
-                # Check for blank line (typically between sections on a resume)
-                if not paragraph_text.strip():
-                    new_section = True
-                    continue
-                elif new_section:
-                    new_section = False
-                    # Check for a match
-                    matched_section = self.__match_section(paragraph_text, sections)
-                    if matched_section:
-                        # Update current section name
-                        current_section = matched_section
-                        body_paragraph = False
-                if body_paragraph:
-                    # Check if this is a resume, update accordingly
-                    if is_resume:
-                        current_section = self.__update_sections(paragraph_text, current_section, sections)
-                    else:
-                        sections[current_section].append(paragraph_text)
+        # Iterate over lines
+        for line in parse_string.splitlines():
+            body_paragraph = True
+            # Check for blank line (typically between sections on a resume)
+            if not line.strip():
+                new_section = True
+                continue
+            elif new_section:
+                new_section = False
+                # Check for a match
+                matched_section = self.__match_section(line, sections)
+                if matched_section:
+                    # Update current section name
+                    current_section = matched_section
+                    body_paragraph = False
+            if body_paragraph:
+                # Check if this is a resume, update accordingly
+                if is_resume:
+                    current_section = self.__update_sections(line, current_section, sections)
+                else:
+                    sections[current_section].append(line)
         # Return parsed resume
         return sections
     
-    def optimize(self):
+    @functools.cache
+    def analyze(self):
         """
-        Main optimization method\n
-        1. Parses resume with match_parse_resume()
+        Main analysis method\n
+        1. Parses resume and job description with match_parse()
         2. Compares resume with CompareResume object
+        3. Calculates how many times a word should be used to match job posting
         """
-        # Parse resume and compile compare string
-        resume_sections = self.match_parse(self.resume_doc, True)
-        compare_string = self.get_compare_string(resume_sections)
-        # Create comparison object, and compare
-        comparison_object = CompareResume(compare_string, self.job_string)
+        # Parse resume and job posting
+        resume_sections = self.match_parse(self.resume_string, True)
+        job_sections = self.match_parse(self.job_string)
+        # Compare job description and resume
+        comparison_object = CompareResume(
+                self.get_compare_string(resume_sections, list(resume_sections.keys())[1:]),
+                self.get_compare_string(job_sections)
+            )
         comparison_object.compare()
-        # Get comparison percentage
-        match_percentage = comparison_object.get_match_percentage()
-        return resume_sections
+        # Initialize feedback dictionary
+        keyword_feedback = {
+            "low_keywords": [],
+            "missed_keywords": []
+        }
+        # Generate keyword frequency feedback
+        for property_name in keyword_feedback.keys():
+            # Get dictionary of keyword-value pairs from comparison
+            property_dict = getattr(comparison_object, property_name)
+            for keyword, value in property_dict.items():
+                # Calculate difference
+                word_difference = math.ceil(comparison_object.max_points * value)
+                # Create feedback
+                keyword_feedback[property_name].append(f"{keyword} should be used {word_difference} more times.")
+                      
+        return {"Overall": comparison_object}, job_sections, resume_sections, keyword_feedback
