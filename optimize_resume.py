@@ -1,5 +1,5 @@
 import re
-import math
+import json
 import functools
 
 from docx.document import Document
@@ -100,6 +100,7 @@ class CompareResume():
             else:
                 missed_keywords[keyword_string] = keyword_tuple[1]
         return missed_keywords
+    
     @property
     @functools.cache
     def job_matches(self) -> List[Tuple[str, float]]:
@@ -111,6 +112,7 @@ class CompareResume():
             if keyword_tuple[0] in self.matches.keys():
                 job_matches[keyword_tuple[0]] = keyword_tuple[1]
         return job_matches
+    
     @property
     @functools.cache
     def resume_matches(self) -> Dict[str, float]:
@@ -122,6 +124,7 @@ class CompareResume():
             if keyword_tuple[0] in self.matches.keys():
                 resume_matches[keyword_tuple[0]] = keyword_tuple[1]
         return resume_matches
+    
     @property
     @functools.cache
     def low_keywords(self) -> Dict[str, float]:
@@ -135,6 +138,27 @@ class CompareResume():
             if job_value > resume_value:
                 low_keywords[keyword] = job_value - resume_value
         return low_keywords
+    
+    def to_count(self, doc_string: str, keywords: Dict[str, float]) -> Dict[str, int]:
+        """
+        Convert raw Rakun2 values into word count
+        """
+        # Get corresponding keywords
+        doc_keywords = self.__job_keywords.final_keywords if doc_string == self.job_string else self.__resume_keywords.final_keywords
+        doc_keyword_list = [keyword_tuple[0] for keyword_tuple in doc_keywords]
+        # Count how many keywords appear
+        word_count = 0
+        for word in doc_string.split(" "):
+            if word.lower() in doc_keyword_list:
+                word_count += 1
+        # Iterate over keyword tuples, calculate counts
+        keyword_count = {}
+        for keyword_tuple in keywords.items():
+            # Get word count from rounded Rakun2 value * total keywords
+            keyword_count[keyword_tuple[0]] = int(keyword_tuple[1] * word_count)
+        # Return final dictionary
+        return keyword_count
+
         
     # Compare keywords
     def compare(self):
@@ -389,12 +413,13 @@ class ResumeOptimizer():
         return sections
     
     @functools.cache
-    def analyze(self):
+    def analyze(self) -> str:
         """
         Main analysis method\n
         1. Parses resume and job description with match_parse()
         2. Compares resume with CompareResume object
         3. Calculates how many times a word should be used to match job posting
+        4. Create and return results as JSON
         """
         # Parse resume and job posting
         resume_sections = self.match_parse(self.resume_string, True)
@@ -405,19 +430,18 @@ class ResumeOptimizer():
                 self.get_compare_string(job_sections)
             )
         comparison_object.compare()
-        # Initialize feedback dictionary
-        keyword_feedback = {
-            "low_keywords": [],
-            "missed_keywords": []
+        # Calculate word counts for missed keywords
+        missed_counts = comparison_object.to_count(comparison_object.job_string, comparison_object.missed_keywords)
+
+        # Initialize results dictionary
+        results = {
+            "points": comparison_object.match_points,
+            "missed":{}
         }
-        # Generate keyword frequency feedback
-        for property_name in keyword_feedback.keys():
-            # Get dictionary of keyword-value pairs from comparison
-            property_dict = getattr(comparison_object, property_name)
-            for keyword, value in property_dict.items():
-                # Calculate difference
-                word_difference = math.ceil(comparison_object.max_points * value)
-                # Create feedback
-                keyword_feedback[property_name].append(f"{keyword} should be used {word_difference} more times.")
+        # Iterate over the first 10 missed keywords
+        for keyword in list(missed_counts.keys())[:9]:
+            count = missed_counts[keyword]
+            # Reference in results
+            results["missed"][keyword] = count
                       
-        return {"Overall": comparison_object}, job_sections, resume_sections, keyword_feedback
+        return json.dumps(results)

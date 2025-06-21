@@ -3,7 +3,7 @@ from uuid import uuid1
 
 from docx import Document
 
-from typing import Annotated, Final
+from typing import Annotated, Final, Dict
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,7 +18,7 @@ ALLOWED_ORIGINS: Final = [
 JOB_DESCRIPTION_MAX_LENGTH: Final = 2000
 
 # Resume storage
-resume_storage = {}
+resume_storage: Dict[str, ResumeOptimizer] = {}
 
 # Create FastAPI App Object
 app = FastAPI()
@@ -44,7 +44,6 @@ async def create_upload_file(file: Annotated[UploadFile, File()], job_descriptio
             contents = await file.read()
             # Create resume
             resume_object = ResumeOptimizer(Document(BytesIO(contents)), job_description)
-            resume_object.compare_keywords()
             # Create UUID
             file_id = uuid1()
             # Reference file
@@ -55,3 +54,13 @@ async def create_upload_file(file: Annotated[UploadFile, File()], job_descriptio
         # Indicate fail due to invalid file type
         raise HTTPException(status_code=400, detail="Invalid file type")
     return {"file_id": file_id}
+
+# Optimize function
+@app.get("/optimize/{resume_id}")
+async def optimize_resume(resume_id):
+    # Check if resume exists
+    if resume_id in resume_storage.keys():
+        # Optimize, analyze, and return json string
+        return resume_storage[resume_id].analyze()
+    else:
+        raise HTTPException(status_code=402, detail="Resume has not been uploaded")
