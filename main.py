@@ -13,6 +13,7 @@ from optimize_resume import ResumeOptimizer
 # List of allowed origins
 ALLOWED_ORIGINS: Final = [
     "https://bradym05.github.io",
+    "http://localhost:8080"
 ]
 # Max job description length
 JOB_DESCRIPTION_MAX_LENGTH: Final = 2000
