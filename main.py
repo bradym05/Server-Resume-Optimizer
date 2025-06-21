@@ -1,5 +1,5 @@
 from io import BytesIO
-from uuid import uuid1
+from uuid import uuid4
 
 from docx import Document
 
@@ -45,23 +45,25 @@ async def create_upload_file(file: Annotated[UploadFile, File()], job_descriptio
             contents = await file.read()
             # Create resume
             resume_object = ResumeOptimizer(Document(BytesIO(contents)), job_description)
-            # Create UUID
-            file_id = uuid1()
+            # Create UUID, store as hex
+            file_id = uuid4().hex
             # Reference file
             resume_storage[file_id] = resume_object
         else:
-            raise HTTPException(status_code=401, detail="Job description is too short (minimum 100 characters)")
+            raise HTTPException(status_code=403, detail="Job description is too short (minimum 100 characters)")
     else:
         # Indicate fail due to invalid file type
-        raise HTTPException(status_code=400, detail="Invalid file type")
+        raise HTTPException(status_code=403, detail="Invalid file type")
     return {"file_id": file_id}
 
 # Optimize function
-@app.get("/optimize/{resume_id}")
-async def optimize_resume(resume_id):
-    # Check if resume exists
-    if resume_id in resume_storage.keys():
-        # Optimize, analyze, and return json string
-        return resume_storage[resume_id].analyze()
-    else:
-        raise HTTPException(status_code=402, detail="Resume has not been uploaded")
+@app.get("/optimize/{file_id}")
+async def optimize_resume(file_id):
+    # Catch key error (resume not found)
+    try:
+        # Get resume object, remove from storage
+        resume_object = resume_storage.pop(file_id)
+        # Analyze and return results
+        return resume_object.analyze()
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Resume has not been uploaded")

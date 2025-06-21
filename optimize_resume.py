@@ -139,6 +139,32 @@ class CompareResume():
                 low_keywords[keyword] = job_value - resume_value
         return low_keywords
     
+    @property
+    @functools.cache
+    def underused(self) -> Dict[str, int]:
+        """
+        Returns underused keywords and how many more times they should be used in the resume
+        """
+        # Lower strings
+        job_words = self.job_string.lower()
+        resume_words = self.resume_string.lower()
+        # Calculate resume/job word count ratio
+        ratio = len(re.findall(r'\b\w+\b', self.job_string.lower()))/len(re.findall(r'\b\w+\b', self.job_string.lower()))
+        # Initialize dictionary
+        underused = {}
+        # Iterate over all matches
+        for keyword in self.matches.keys():
+            # Get resume count and adjust
+            resume_count = resume_words.count(keyword) * ratio
+            # Get job count and difference
+            job_count = job_words.count(keyword)
+            difference = int(job_count - resume_count)
+            # Check if underused, reference
+            if difference > 0:
+                underused[keyword] = difference
+        # Return final dictionary
+        return underused
+
     def to_count(self, doc_string: str, keywords: Dict[str, float]) -> Dict[str, int]:
         """
         Convert raw Rakun2 values into word count
@@ -239,6 +265,8 @@ class ResumeOptimizer():
     DATES_REGEX: str = r"((\d:[0-9]{2}/)?\d{2}/\d{4})"
     # Max length for the title of a section
     MAX_TITLE_LENGTH: int = 50
+    # Threshold (of match points) for showing missed keywords instead of underused keywords
+    MISSED_THRESHOLD: int = 2
 
     def __init__(self, resume_doc: Document, job_string: str):
         """
@@ -418,8 +446,9 @@ class ResumeOptimizer():
         Main analysis method\n
         1. Parses resume and job description with match_parse()
         2. Compares resume with CompareResume object
-        3. Calculates how many times a word should be used to match job posting
-        4. Create and return results as JSON
+        3. Finds missed or underused keywords depending on match points
+            (missed keywords are probably not meaningful if most keywords are matched)
+        4. Create and return results as JSON ready dictionary
         """
         # Parse resume and job posting
         resume_sections = self.match_parse(self.resume_string, True)
@@ -430,18 +459,22 @@ class ResumeOptimizer():
                 self.get_compare_string(job_sections)
             )
         comparison_object.compare()
-        # Calculate word counts for missed keywords
-        missed_counts = comparison_object.to_count(comparison_object.job_string, comparison_object.missed_keywords)
-
-        # Initialize results dictionary
-        results = {
-            "points": comparison_object.match_points,
-            "missed":{}
+        # Check match points
+        if comparison_object.match_points >= ResumeOptimizer.MISSED_THRESHOLD:
+            # Return underused keywords
+            underused = comparison_object.underused
+        else:
+            # Initialize underused dictionary
+            underused = {}
+            # Calculate word counts for missed keywords
+            missed_counts = comparison_object.to_count(self.job_string, comparison_object.missed_keywords)
+            # Iterate over the first 10 missed keywords
+            for keyword in list(missed_counts.keys())[:9]:
+                count = missed_counts[keyword]
+                # Reference in results
+                underused[keyword] = count
+        # Return final results
+        return {
+            "points": float(comparison_object.match_points),
+            "underused":underused,
         }
-        # Iterate over the first 10 missed keywords
-        for keyword in list(missed_counts.keys())[:9]:
-            count = missed_counts[keyword]
-            # Reference in results
-            results["missed"][keyword] = count
-                      
-        return json.dumps(results)
