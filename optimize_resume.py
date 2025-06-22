@@ -149,7 +149,7 @@ class CompareResume():
         job_words = self.job_string.lower()
         resume_words = self.resume_string.lower()
         # Calculate resume/job word count ratio
-        ratio = len(re.findall(r'\b\w+\b', self.job_string.lower()))/len(re.findall(r'\b\w+\b', self.job_string.lower()))
+        ratio = len(re.findall(r'\b\w+\b', self.resume_string.lower()))/len(re.findall(r'\b\w+\b', self.job_string.lower()))
         # Initialize dictionary
         underused = {}
         # Iterate over all matches
@@ -174,14 +174,16 @@ class CompareResume():
         doc_keyword_list = [keyword_tuple[0] for keyword_tuple in doc_keywords]
         # Count how many keywords appear
         word_count = 0
-        for word in doc_string.split(" "):
-            if word.lower() in doc_keyword_list:
-                word_count += 1
+        lowered_doc_string = doc_string.lower()
+        for word in keywords.keys():
+            word_count += lowered_doc_string.count(word)
         # Iterate over keyword tuples, calculate counts
         keyword_count = {}
         for keyword_tuple in keywords.items():
             # Get word count from rounded Rakun2 value * total keywords
-            keyword_count[keyword_tuple[0]] = int(keyword_tuple[1] * word_count)
+            count = int(keyword_tuple[1] * word_count)
+            if count > 0:
+                keyword_count[keyword_tuple[0]] = count
         # Return final dictionary
         return keyword_count
 
@@ -206,7 +208,7 @@ class CompareResume():
         for keyword_tuple in job_keywords:
             # Update keyword list and max points
             job_keyword_text.append(keyword_tuple[0])
-            max_points += keyword_tuple[1] * 2
+            max_points += keyword_tuple[1]
         # Find matches
         for keyword_tuple in resume_keywords:
             # Check for match
@@ -219,9 +221,11 @@ class CompareResume():
                 match_value = keyword_tuple[1] + job_keywords[match_index][1]
                 matches[keyword_tuple[0]] = match_value
                 match_points += match_value
+                # Update max points
+                max_points += keyword_tuple[1]
         # Update attributes
         self.__match_points = match_points
-        self.__max_points = max_points
+        self.__max_points = max_points/2
         self.__matches = matches
 
 class ResumeOptimizer():
@@ -266,7 +270,7 @@ class ResumeOptimizer():
     # Max length for the title of a section
     MAX_TITLE_LENGTH: int = 50
     # Threshold (of match points) for showing missed keywords instead of underused keywords
-    MISSED_THRESHOLD: int = 2
+    MISSED_THRESHOLD: int = 3.5
 
     def __init__(self, resume_doc: Document, job_string: str):
         """
@@ -468,13 +472,14 @@ class ResumeOptimizer():
             underused = {}
             # Calculate word counts for missed keywords
             missed_counts = comparison_object.to_count(self.job_string, comparison_object.missed_keywords)
-            # Iterate over the first 10 missed keywords
-            for keyword in list(missed_counts.keys())[:9]:
+            # Iterate over the first 20 missed keywords
+            missed_keywords = list(missed_counts.keys())
+            for keyword in missed_keywords[:min(19, len(missed_keywords))]:
                 count = missed_counts[keyword]
                 # Reference in results
                 underused[keyword] = count
         # Return final results
         return {
-            "points": float(comparison_object.match_points),
+            "match_percentage": float(comparison_object.match_percentage),
             "underused":underused,
         }

@@ -16,7 +16,7 @@ ALLOWED_ORIGINS: Final = [
     "http://localhost:8080"
 ]
 # Max job description length
-JOB_DESCRIPTION_MAX_LENGTH: Final = 2000
+JOB_DESCRIPTION_MAX_LENGTH: Final = 3000
 
 # Resume storage
 resume_storage: Dict[str, ResumeOptimizer] = {}
