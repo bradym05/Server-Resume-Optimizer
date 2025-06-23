@@ -33,6 +33,8 @@ class CompareResume():
     -------
     compare():
         Compare keywords and update attributes
+    to_count(keywords_dict):
+        Converts given dictionary of keyword-float values into keyword-int values
     """
     def __init__(self, resume_string: str, job_string: str):
         """
@@ -139,21 +141,19 @@ class CompareResume():
                 low_keywords[keyword] = job_value - resume_value
         return low_keywords
     
-    @property
-    @functools.cache
-    def underused(self) -> Dict[str, int]:
+    def to_count(self, keywords_dict) -> Dict[str, int]:
         """
-        Returns underused keywords and how many more times they should be used in the resume
+        Convert given Rakun2 keyword dictionary into a word count dictionary
         """
         # Lower strings
         job_words = self.job_string.lower()
         resume_words = self.resume_string.lower()
         # Calculate resume/job word count ratio
-        ratio = len(re.findall(r'\b\w+\b', self.resume_string.lower()))/len(re.findall(r'\b\w+\b', self.job_string.lower()))
+        ratio = len(re.findall(r'\b\w+\b', resume_words))/len(re.findall(r'\b\w+\b', resume_words))
         # Initialize dictionary
-        underused = {}
+        keyword_counts = {}
         # Iterate over all matches
-        for keyword in self.matches.keys():
+        for keyword in keywords_dict.keys():
             # Get resume count and adjust
             resume_count = resume_words.count(keyword) * ratio
             # Get job count and difference
@@ -161,32 +161,9 @@ class CompareResume():
             difference = int(job_count - resume_count)
             # Check if underused, reference
             if difference > 0:
-                underused[keyword] = difference
+                keyword_counts[keyword] = difference
         # Return final dictionary
-        return underused
-
-    def to_count(self, doc_string: str, keywords: Dict[str, float]) -> Dict[str, int]:
-        """
-        Convert raw Rakun2 values into word count
-        """
-        # Get corresponding keywords
-        doc_keywords = self.__job_keywords.final_keywords if doc_string == self.job_string else self.__resume_keywords.final_keywords
-        doc_keyword_list = [keyword_tuple[0] for keyword_tuple in doc_keywords]
-        # Count how many keywords appear
-        word_count = 0
-        lowered_doc_string = doc_string.lower()
-        for word in keywords.keys():
-            word_count += lowered_doc_string.count(word)
-        # Iterate over keyword tuples, calculate counts
-        keyword_count = {}
-        for keyword_tuple in keywords.items():
-            # Get word count from rounded Rakun2 value * total keywords
-            count = int(keyword_tuple[1] * word_count)
-            if count > 0:
-                keyword_count[keyword_tuple[0]] = count
-        # Return final dictionary
-        return keyword_count
-
+        return keyword_counts
         
     # Compare keywords
     def compare(self):
@@ -271,6 +248,8 @@ class ResumeOptimizer():
     MAX_TITLE_LENGTH: int = 50
     # Threshold (of match points) for showing missed keywords instead of underused keywords
     MISSED_THRESHOLD: int = 3.5
+    # Maximum number of underused words to return
+    MAX_UNDERUSED: int = 20
 
     def __init__(self, resume_doc: Document, job_string: str):
         """
@@ -466,20 +445,13 @@ class ResumeOptimizer():
         # Check match points
         if comparison_object.match_points >= ResumeOptimizer.MISSED_THRESHOLD:
             # Return underused keywords
-            underused = comparison_object.underused
+            underused = comparison_object.to_count(comparison_object.matches)
         else:
-            # Initialize underused dictionary
-            underused = {}
-            # Calculate word counts for missed keywords
-            missed_counts = comparison_object.to_count(self.job_string, comparison_object.missed_keywords)
-            # Iterate over the first 20 missed keywords
-            missed_keywords = list(missed_counts.keys())
-            for keyword in missed_keywords[:min(19, len(missed_keywords))]:
-                count = missed_counts[keyword]
-                # Reference in results
-                underused[keyword] = count
+            # Return missed keywords
+            underused = comparison_object.to_count(comparison_object.missed_keywords)
+
         # Return final results
         return {
             "match_percentage": float(comparison_object.match_percentage),
-            "underused":underused,
+            "underused":underused[:min(len(underused), ResumeOptimizer.MAX_UNDERUSED)],
         }
