@@ -5,7 +5,7 @@ from docx import Document
 
 from typing import Annotated, Final, Dict
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from optimize_resume import ResumeOptimizer
@@ -17,6 +17,7 @@ ALLOWED_ORIGINS: Final = [
 ]
 # Max job description length
 JOB_DESCRIPTION_MAX_LENGTH: Final = 3000
+JOB_DESCRIPTION_MIN_LENGTH: Final = 100
 # Max resume size (bytes)
 RESUME_MAX_SIZE: Final = 2e6
 # MIME for docx files
@@ -39,29 +40,23 @@ app.add_middleware(
 
 # Main upload function
 @app.post("/uploadfile/")
-async def create_upload_file(file: Annotated[UploadFile, File()], job_description: Annotated[str, Form(max_length=JOB_DESCRIPTION_MAX_LENGTH)]):
+async def create_upload_file(file: Annotated[UploadFile, File()], job_description: Annotated[str, Form(max_length=JOB_DESCRIPTION_MAX_LENGTH, min_length=JOB_DESCRIPTION_MIN_LENGTH)]):
     # Initialize file id
     file_id = ""
     # Validate file type
     if file.content_type == DOCX_MIME:
-        # Validate job description
-        if len(job_description) >= 100:
-            # Validate file size
-            if file.size <= RESUME_MAX_SIZE:
-                # Get file contents
-                contents = await file.read(int(RESUME_MAX_SIZE))
-                # Create resume
-                resume_object = ResumeOptimizer(Document(BytesIO(contents)), job_description)
-                # Close file
-                file.close()
-                # Create UUID, store as hex
-                file_id = uuid4().hex
-                # Reference file
-                resume_storage[file_id] = resume_object
-            else:
-                raise HTTPException(status_code=403, detail="Resume file is too large (maximum 2mb)")
+        # Validate file size
+        if file.size <= RESUME_MAX_SIZE:
+            # Get file contents
+            contents = await file.read(int(RESUME_MAX_SIZE))
+            # Create resume
+            resume_object = ResumeOptimizer(Document(BytesIO(contents)), job_description)
+            # Create UUID, store as hex
+            file_id = uuid4()
+            # Reference file
+            resume_storage[file_id] = resume_object
         else:
-            raise HTTPException(status_code=403, detail="Job description is too short (minimum 100 characters)")
+            raise HTTPException(status_code=403, detail="Resume file is too large (maximum 2mb)")
     else:
         # Indicate fail due to invalid file type
         raise HTTPException(status_code=403, detail="Invalid file type")
@@ -69,7 +64,7 @@ async def create_upload_file(file: Annotated[UploadFile, File()], job_descriptio
 
 # Optimize function
 @app.get("/optimize/{file_id}")
-async def optimize_resume(file_id):
+async def optimize_resume(file_id: UUID):
     # Catch key error (resume not found)
     try:
         # Get resume object, remove from storage

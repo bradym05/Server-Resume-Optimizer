@@ -1,5 +1,4 @@
 import re
-import json
 import functools
 import itertools
 
@@ -37,6 +36,10 @@ class CompareResume():
     to_count(keywords_dict):
         Converts given dictionary of keyword-float values into keyword-int values
     """
+
+    # Extract words with regular expression
+    WORD_REGEX: Final = r'\b\w+\b'
+
     def __init__(self, resume_string: str, job_string: str):
         """
         Construct a new CompareResume object
@@ -142,15 +145,24 @@ class CompareResume():
                 low_keywords[keyword] = job_value - resume_value
         return low_keywords
     
-    def to_count(self, keywords_dict) -> Dict[str, int]:
+    # Convert given Rakun2 keyword dictionary into a word count dictionary
+    def to_count(self, keywords_dict: Dict[str, float]) -> Dict[str, int]:
         """
-        Convert given Rakun2 keyword dictionary into a word count dictionary
+        Pass a Rakun2 keyword dictionary (keyword - float) and convert to (keyword - int)
+        1. Calculates word-count ratio (job_string/resume_string)
+        2. Iterates over all keywords in given dictionary
+            - Counts keyword appearances in resume string
+            - Adjusts count (count * ratio)
+            - Counts keyword appearances in job string
+            - Calculates difference (job_count - resume_count)
+            - Records (keyword - difference) in dict if difference > 0
+        3. Returns final keyword count dictionary
         """
         # Lower strings
         job_words = self.job_string.lower()
         resume_words = self.resume_string.lower()
         # Calculate resume/job word count ratio
-        ratio = len(re.findall(r'\b\w+\b', resume_words))/len(re.findall(r'\b\w+\b', job_words))
+        ratio = len(re.findall(CompareResume.WORD_REGEX, job_words))/len(re.findall(CompareResume.WORD_REGEX, resume_words))
         # Initialize dictionary
         keyword_counts = {}
         # Iterate over all matches
@@ -159,13 +171,13 @@ class CompareResume():
             resume_count = resume_words.count(keyword) * ratio
             # Get job count and difference
             job_count = job_words.count(keyword)
-            difference = int(job_count - resume_count)
+            difference = round(job_count - resume_count)
             # Check if underused, reference
             if difference > 0:
                 keyword_counts[keyword] = difference
         # Return final dictionary
         return keyword_counts
-        
+    
     # Compare keywords
     def compare(self):
         """
@@ -223,20 +235,31 @@ class ResumeOptimizer():
     -------
     match_parse(parse_string: str, is_resume: bool):
         Parses text by finding words that match predefined section names
-    get_compare_string(self, parse_results, keys):
+    get_compare_string(parse_results, keys):
         Returns joined sections (from given keys) from parse results
+    apply_weights(sections: Dict[str, List[str | None]], keyword_values: Dict[str, float]):
+        Apply SECTION_WEIGHTS to given keyword dict
     analyze():
-        Parses and compares the resume and job description to provide actionable feedback
+        Parses and compares the resume and job description
+        Returns JSON dictionary of results from comparison
         
     """
 
     # List of possible resume section names
-    RESUME_SECTIONS: List[List[str]] = [
+    SECTION_IDENTIFIERS: List[List[str]] = [
         ["about", "profile", "introduction", "summary", "objective"],
         ["education", "school", "academic"],
         ["qualification", "skill", "credential", "certification", "certificate"],
         ["experience", "history", "project", "work"],
     ]
+    # Weight of each section (applied to job description keywords)
+    SECTION_WEIGHTS: Dict[str, float] = {
+        "header": 1,
+        "education": 1,
+        "about": 2,
+        "qualification": 4,
+        "experience": 4,
+    }
     # Regex for contact info
     CONTACT_REGEX: Dict[str, str] = {
         "phone": r'[\+\(]?[1-9][0-9 .\-\(\)]{8,}[0-9]',
@@ -248,7 +271,7 @@ class ResumeOptimizer():
     # Max length for the title of a section
     MAX_TITLE_LENGTH: int = 50
     # Threshold (of match points) for showing missed keywords instead of underused keywords
-    MISSED_THRESHOLD: int = 3.5
+    MISSED_THRESHOLD: float = 0.7
     # Maximum number of underused words to return
     MAX_UNDERUSED: int = 20
 
@@ -350,7 +373,7 @@ class ResumeOptimizer():
     def __match_section(self, text, sections) -> str | None:
         # Iterate over section names
         matched_section = None
-        for section_names in ResumeOptimizer.RESUME_SECTIONS:
+        for section_names in ResumeOptimizer.SECTION_IDENTIFIERS:
             if not section_names[0] in sections.keys():
                 # Check for a match
                 if any(name in text.lower() for name in section_names):
@@ -373,6 +396,8 @@ class ResumeOptimizer():
         """
         Compile string from parse results, primarily used for compare_keywords() method
         1. Iterate over each section that was given in keys
+        2. Append text to compare string, start new line
+        3. Return final compare string
         """
         compare_string = ""
         keys = keys if keys else list(parse_results.keys())
@@ -424,6 +449,62 @@ class ResumeOptimizer():
         # Return parsed resume
         return sections
     
+    def apply_weights(self, sections: Dict[str, List[str | None]], keyword_values: Dict[str, float]) -> Dict[str, float]:
+        """
+        Apply SECTION_WEIGHTS to given keywords dictionary from the provided sections dictionary
+        1. Get compare string (all sections combined)
+        2. Add weights
+            - Get section string by joining list
+            - Iterate over all keywords
+                - Cache/get cached total count (count of keyword in compare string)
+                - Get count weight (#word in section/#word in all sections)
+                - Add final weight ((Rakun2 value * section weight) * count weight)
+            - Add section weight to total weight
+        3. Divide weights
+            - Iterate over each keyword - weight value
+            - Divide by total weight
+        4. Return final weighted dictionary
+        """
+        # Initialize variables
+        total_weight = 0
+        weighted_dict = keyword_values.copy()
+        compare_string = self.get_compare_string(sections).lower()
+        total_counts = {}
+        # Iterate over each section
+        for section_name, section_list in sections.items():
+            # Check if section has any content
+            if len(section_list) > 0:
+                # Get section string
+                section_string = "\n".join(section_list).lower()
+                # Get section weight
+                section_weight = ResumeOptimizer.SECTION_WEIGHTS[section_name]
+                applied = False
+                # Iterate over keywords
+                for keyword, value in keyword_values.items():
+                    # Check cache, count and cache if not cached already
+                    if not keyword in total_counts.keys():
+                        total_counts[keyword] = compare_string.count(keyword)
+                    # Get section count
+                    section_count = section_string.count(keyword)
+                    # Check if keyword is in this section
+                    if section_count > 0:
+                        # Update applied
+                        applied = True
+                        # Calculate and add weight
+                        count_weight = section_count/total_counts[keyword]
+                        weighted_dict[keyword] += section_weight * value * count_weight
+                # Check if section had any keywords
+                if applied == True:
+                    # Update total weight
+                    total_weight += section_weight
+            else:
+                continue
+        # Iterate over each keyword, divide weight
+        for keyword in weighted_dict.keys():
+            weighted_dict[keyword] /= total_weight
+        # Return final weighted dictionary
+        return weighted_dict
+
     @functools.cache
     def analyze(self) -> str:
         """
@@ -443,16 +524,29 @@ class ResumeOptimizer():
                 self.get_compare_string(job_sections)
             )
         comparison_object.compare()
+        # Get weighted matches and missed keywords
+        matched_weighted = self.apply_weights(job_sections, comparison_object.matches)
+        missed_weighted = self.apply_weights(job_sections, comparison_object.missed_keywords)
+        # Calculate scores
+        matched_total = 0
+        missed_total = 0
+        for keyword, val in matched_weighted.items():
+            matched_total += val
+        for keyword, val in missed_weighted.items():
+            missed_total += val
+        # Calculate final score
+        match_percentage = matched_total/missed_total
         # Check match points
-        if comparison_object.match_points >= ResumeOptimizer.MISSED_THRESHOLD:
+        if match_percentage >= ResumeOptimizer.MISSED_THRESHOLD:
             # Return underused keywords
-            underused = comparison_object.to_count(comparison_object.matches)
+            underused = comparison_object.to_count(matched_weighted)
         else:
             # Return missed keywords
-            underused = comparison_object.to_count(comparison_object.missed_keywords)
-
+            underused = comparison_object.to_count(missed_weighted)
+        # Sort underused from high-low
+        underused = dict(sorted(underused.items(), key=lambda item: item[1], reverse=True))
         # Return final results
         return {
-            "match_percentage": float(comparison_object.match_percentage),
+            "match_percentage": float(match_percentage),
             "underused":dict(itertools.islice(underused.items(), min(len(underused), ResumeOptimizer.MAX_UNDERUSED))),
         }
