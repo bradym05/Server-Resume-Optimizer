@@ -150,7 +150,7 @@ class CompareResume():
         job_words = self.job_string.lower()
         resume_words = self.resume_string.lower()
         # Calculate resume/job word count ratio
-        ratio = len(re.findall(r'\b\w+\b', resume_words))/len(re.findall(r'\b\w+\b', resume_words))
+        ratio = len(re.findall(r'\b\w+\b', resume_words))/len(re.findall(r'\b\w+\b', job_words))
         # Initialize dictionary
         keyword_counts = {}
         # Iterate over all matches

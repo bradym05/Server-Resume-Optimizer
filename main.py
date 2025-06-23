@@ -1,5 +1,5 @@
 from io import BytesIO
-from uuid import uuid4
+from uuid import uuid4, UUID
 
 from docx import Document
 
@@ -17,6 +17,10 @@ ALLOWED_ORIGINS: Final = [
 ]
 # Max job description length
 JOB_DESCRIPTION_MAX_LENGTH: Final = 3000
+# Max resume size (bytes)
+RESUME_MAX_SIZE: Final = 2e6
+# MIME for docx files
+DOCX_MIME: Final = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 # Resume storage
 resume_storage: Dict[str, ResumeOptimizer] = {}
@@ -38,17 +42,24 @@ app.add_middleware(
 async def create_upload_file(file: Annotated[UploadFile, File()], job_description: Annotated[str, Form(max_length=JOB_DESCRIPTION_MAX_LENGTH)]):
     # Initialize file id
     file_id = ""
-    if file.filename.endswith(".docx"):
+    # Validate file type
+    if file.content_type == DOCX_MIME:
         # Validate job description
         if len(job_description) >= 100:
-            # Get file contents
-            contents = await file.read()
-            # Create resume
-            resume_object = ResumeOptimizer(Document(BytesIO(contents)), job_description)
-            # Create UUID, store as hex
-            file_id = uuid4().hex
-            # Reference file
-            resume_storage[file_id] = resume_object
+            # Validate file size
+            if file.size <= RESUME_MAX_SIZE:
+                # Get file contents
+                contents = await file.read(int(RESUME_MAX_SIZE))
+                # Create resume
+                resume_object = ResumeOptimizer(Document(BytesIO(contents)), job_description)
+                # Close file
+                file.close()
+                # Create UUID, store as hex
+                file_id = uuid4().hex
+                # Reference file
+                resume_storage[file_id] = resume_object
+            else:
+                raise HTTPException(status_code=403, detail="Resume file is too large (maximum 2mb)")
         else:
             raise HTTPException(status_code=403, detail="Job description is too short (minimum 100 characters)")
     else:
