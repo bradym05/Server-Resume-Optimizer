@@ -1,6 +1,7 @@
 import re
 import json
 import functools
+import itertools
 
 from docx.document import Document
 from docx.table import Table
@@ -453,5 +454,5 @@ class ResumeOptimizer():
         # Return final results
         return {
             "match_percentage": float(comparison_object.match_percentage),
-            "underused":underused[:min(len(underused), ResumeOptimizer.MAX_UNDERUSED)],
+            "underused":dict(itertools.islice(underused.items(), min(len(underused), ResumeOptimizer.MAX_UNDERUSED))),
         }
