@@ -1,4 +1,5 @@
 import re
+import numpy
 import functools
 import itertools
 
@@ -596,8 +597,10 @@ class ResumeOptimizer():
         for keyword, val in missed_weighted.items():
             missed_total += val
         # Calculate final score
-        match_percentage = matched_total/missed_total
-
+        if missed_total > matched_total:
+            match_percentage = matched_total/missed_total
+        else:
+            match_percentage = matched_total/(missed_total + matched_total)
         # Check match points
         if match_percentage >= ResumeOptimizer.MISSED_THRESHOLD:
             # Return underused keywords
