@@ -408,7 +408,7 @@ class ResumeOptimizer():
         # Return final compare string
         return compare_string
 
-    # Seperate string by sections by finding sections from common words
+    # Seperate string by finding sections from common words
     def match_parse(self, parse_string: str, is_resume: bool = False) -> Dict[str, List[str | None]]:
         """
         Identifies sections, and groups content into a dictionary where the keys are the sections
@@ -504,29 +504,90 @@ class ResumeOptimizer():
             weighted_dict[keyword] /= total_weight
         # Return final weighted dictionary
         return weighted_dict
-
+    
+    # Get parsing results for given parse dictionary
+    def parsing_results(self, parsed_dict: Dict[str, List[str | None]]) -> Dict[str, float | dict]:
+        """
+        1. Create list of successfully parsed sections
+        2. Iterate over all possible sections
+        3. Calculate total value of parsed sections
+        4. Get score from total/max values
+        Return dictionary: A dictionary with parse results
+                    - "max_score":float',
+                    - "parsing_score":float',
+                    - "missed_sections":dict
+                        - "value":float,
+                        - "identifiers":list(str),
+                    - "found_sections":dict
+                        - "value":float,
+                        - "identifiers":list(str),
+        """
+        # Create list of parsed sections
+        parsed_sections = list(section_name for section_name, section_list in parsed_dict.items() if len(section_list) > 0)
+        # Initialize variables
+        max_score = 0
+        parsing_score = 0
+        missed_sections = {}
+        found_sections = {}
+        # Iterate over section names
+        for section_ids in ResumeOptimizer.SECTION_IDENTIFIERS:
+            section = section_ids[0]
+            # Get section weight
+            section_weight = ResumeOptimizer.SECTION_WEIGHTS[section]
+            # Increment max score
+            max_score += section_weight
+            # Check if parsed
+            if section in parsed_sections:
+                # Increment parsing score
+                parsing_score += section_weight
+                # Record value in parsed sections
+                found_sections[section] = {
+                    "value": section_weight,
+                    "identifiers": section_ids
+                }
+            else:
+                # Record value in missed sections
+                missed_sections[section] = {
+                    "value": section_weight,
+                    "identifiers": section_ids
+                }
+        # Return results
+        return {
+            "max_score":max_score,
+            "parsing_score":parsing_score,
+            "missed_sections":missed_sections,
+            "found_sections":found_sections
+        }
+                
     @functools.cache
     def analyze(self) -> str:
         """
-        Main analysis method\n
+        Main analysis method
         1. Parses resume and job description with match_parse()
-        2. Compares resume with CompareResume object
-        3. Finds missed or underused keywords depending on match points
-            (missed keywords are probably not meaningful if most keywords are matched)
-        4. Create and return results as JSON ready dictionary
+        2. Gets parsing results with parsing_results()
+        3. Compares resume with CompareResume object
+        4. Finds missed or underused keywords depending on match points 
+            - (missed keywords are probably not meaningful if most keywords are matched)
+        5. Create and return results as JSON ready dictionary
         """
         # Parse resume and job posting
         resume_sections = self.match_parse(self.resume_string, True)
         job_sections = self.match_parse(self.job_string)
+
+        # Get parsing results
+        parsing_results = self.parsing_results(resume_sections)
+        
         # Compare job description and resume
         comparison_object = CompareResume(
-                self.get_compare_string(resume_sections, list(resume_sections.keys())[1:]),
+                self.get_compare_string(resume_sections, list(resume_sections.keys())[1:]), # without header
                 self.get_compare_string(job_sections)
             )
         comparison_object.compare()
+
         # Get weighted matches and missed keywords
         matched_weighted = self.apply_weights(job_sections, comparison_object.matches)
         missed_weighted = self.apply_weights(job_sections, comparison_object.missed_keywords)
+
         # Calculate scores
         matched_total = 0
         missed_total = 0
@@ -536,6 +597,7 @@ class ResumeOptimizer():
             missed_total += val
         # Calculate final score
         match_percentage = matched_total/missed_total
+
         # Check match points
         if match_percentage >= ResumeOptimizer.MISSED_THRESHOLD:
             # Return underused keywords
@@ -545,8 +607,11 @@ class ResumeOptimizer():
             underused = comparison_object.to_count(missed_weighted)
         # Sort underused from high-low
         underused = dict(sorted(underused.items(), key=lambda item: item[1], reverse=True))
+
         # Return final results
         return {
             "match_percentage": float(match_percentage),
             "underused":dict(itertools.islice(underused.items(), min(len(underused), ResumeOptimizer.MAX_UNDERUSED))),
+            "contact_info":self.contact_info,
+            "parsing_results":parsing_results
         }
