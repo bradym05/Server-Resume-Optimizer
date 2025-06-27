@@ -590,17 +590,16 @@ class ResumeOptimizer():
         missed_weighted = self.apply_weights(job_sections, comparison_object.missed_keywords)
 
         # Calculate scores
-        matched_total = 0
-        missed_total = 0
-        for keyword, val in matched_weighted.items():
-            matched_total += val
-        for keyword, val in missed_weighted.items():
-            missed_total += val
+        matched_total = sum(matched_weighted.values())
+        missed_total = sum(missed_weighted.values())
+        net = missed_total + matched_total
         # Calculate final score
         if missed_total > matched_total:
             match_percentage = matched_total/missed_total
-        else:
+        elif net > 0:
             match_percentage = matched_total/(missed_total + matched_total)
+        else:
+            match_percentage = 0
         # Check match points
         if match_percentage >= ResumeOptimizer.MISSED_THRESHOLD:
             # Return underused keywords
