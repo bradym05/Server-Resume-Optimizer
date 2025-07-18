@@ -65,9 +65,6 @@ async def create_upload_file(file: Annotated[UploadFile, File()], job_descriptio
 # Optimize function
 @app.get("/optimize/{file_id}")
 async def optimize_resume(file_id: UUID):
-    # Check if this is a test message
-    if file_id == "TEST":
-        return {}
     # Catch key error (resume not found)
     try:
         # Get resume object, remove from storage
@@ -76,3 +73,8 @@ async def optimize_resume(file_id: UUID):
         return resume_object.analyze()
     except KeyError:
         raise HTTPException(status_code=404, detail="Resume has not been uploaded")
+
+# Test endpoint
+@app.get("/test/")
+def test_endpoint():
+    return ""
