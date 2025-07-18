@@ -65,6 +65,9 @@ async def create_upload_file(file: Annotated[UploadFile, File()], job_descriptio
 # Optimize function
 @app.get("/optimize/{file_id}")
 async def optimize_resume(file_id: UUID):
+    # Check if this is a test message
+    if file_id == "TEST":
+        return {}
     # Catch key error (resume not found)
     try:
         # Get resume object, remove from storage
