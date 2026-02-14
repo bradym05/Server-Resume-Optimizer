@@ -611,7 +611,6 @@ class ResumeOptimizer():
         underused = dict(sorted(underused.items(), key=lambda item: item[1], reverse=True))
 
         # Return final results
-        return {"RESULTS": comparison_object}, job_sections, resume_sections, match_percentage
         return {
             "match_percentage": float(match_percentage),
             "underused":dict(itertools.islice(underused.items(), min(len(underused), ResumeOptimizer.MAX_UNDERUSED))),
