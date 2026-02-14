@@ -1,5 +1,5 @@
 import re
-import numpy
+import yake
 import functools
 import itertools
 
@@ -7,14 +7,12 @@ from docx.document import Document
 from docx.table import Table
 
 from typing import Final, Dict, List, Tuple, Optional
-from rakun2 import RakunKeyphraseDetector
 
-# Hyperparameters for rakun2
-RAKUN_HYPERPARAMETERS: Final = {
-    "num_keywords": 70,
-    "merge_threshold": 0.5,
-    "alpha": 0.9,
-    "token_prune_len": 6
+# Hyperparameters for YAKE
+YAKE_HYPERPARAMETERS: Final = {
+    "top": 70,
+    "dedupLim": 0.8,
+    "n": 2
 }
 
 class CompareResume():
@@ -57,9 +55,9 @@ class CompareResume():
         self.__matches = {}
         self.__match_points = 0
         self.__max_points = 0
-        # Create Rakun Keywords objects
-        self.__resume_keywords = RakunKeyphraseDetector(RAKUN_HYPERPARAMETERS)
-        self.__job_keywords = RakunKeyphraseDetector(RAKUN_HYPERPARAMETERS)
+        # Create YAKE Keyword Extractor objects
+        self.__resume_extractor = yake.KeywordExtractor(**YAKE_HYPERPARAMETERS)
+        self.__job_extractor = yake.KeywordExtractor(**YAKE_HYPERPARAMETERS)
         # Set public attributes
         self.resume_string = resume_string
         self.job_string = job_string
@@ -98,9 +96,9 @@ class CompareResume():
         Keywords from the job posting which were not in the resume, and their values
         """
         missed_keywords = {}
-        resume_keywords = [keyword_tuple[0] for keyword_tuple in self.__resume_keywords.final_keywords]
+        resume_keywords = [keyword_tuple[0] for keyword_tuple in self.__resume_keywords]
         # Iterate over job keywords
-        for keyword_tuple in self.__job_keywords.final_keywords:
+        for keyword_tuple in self.__job_keywords:
             keyword_string = keyword_tuple[0]
             if keyword_string in resume_keywords:
                 continue
@@ -115,7 +113,7 @@ class CompareResume():
         Dictionary of matched keywords to their value in the job description
         """
         job_matches = {}
-        for keyword_tuple in self.__job_keywords.final_keywords:
+        for keyword_tuple in self.__job_keywords:
             if keyword_tuple[0] in self.matches.keys():
                 job_matches[keyword_tuple[0]] = keyword_tuple[1]
         return job_matches
@@ -127,7 +125,7 @@ class CompareResume():
         Dictionary of matched keywords to their value in the resume
         """
         resume_matches = {}
-        for keyword_tuple in self.__resume_keywords.final_keywords:
+        for keyword_tuple in self.__resume_keywords:
             if keyword_tuple[0] in self.matches.keys():
                 resume_matches[keyword_tuple[0]] = keyword_tuple[1]
         return resume_matches
@@ -146,10 +144,10 @@ class CompareResume():
                 low_keywords[keyword] = job_value - resume_value
         return low_keywords
     
-    # Convert given Rakun2 keyword dictionary into a word count dictionary
+    # Convert given YAKE keyword dictionary into a word count dictionary
     def to_count(self, keywords_dict: Dict[str, float]) -> Dict[str, int]:
         """
-        Pass a Rakun2 keyword dictionary (keyword - float) and convert to (keyword - int)
+        Pass a YAKE keyword dictionary (keyword - float) and convert to (keyword - int)
         1. Calculates word-count ratio (job_string/resume_string)
         2. Iterates over all keywords in given dictionary
             - Counts keyword appearances in resume string
@@ -183,25 +181,25 @@ class CompareResume():
     def compare(self):
         """
         Main comparison method\n
-        1. Finds keywords with Rakun2
+        1. Finds keywords with YAKE
         2. Finds resume keywords that match with job keywords
-        3. Calculates score per keyword by adding the values from Rakun2
+        3. Calculates score per keyword by adding the values from YAKE
         """
-        # Get keywords
-        resume_keywords = self.__resume_keywords.find_keywords(self.resume_string, input_type="string")
-        job_keywords = self.__job_keywords.find_keywords(self.job_string, input_type="string")
+        # Get keywords and store
+        self.__resume_keywords = self.__resume_extractor.extract_keywords(self.resume_string)
+        self.__job_keywords = self.__job_extractor.extract_keywords(self.job_string)
         # Initialize results
         matches = {}
         match_points = 0
         max_points = 0
         job_keyword_text = []
         # Iterate over job keywords
-        for keyword_tuple in job_keywords:
+        for keyword_tuple in self.__job_keywords:
             # Update keyword list and max points
             job_keyword_text.append(keyword_tuple[0])
             max_points += keyword_tuple[1]
         # Find matches
-        for keyword_tuple in resume_keywords:
+        for keyword_tuple in self.__resume_keywords:
             # Check for match
             if keyword_tuple[0] in job_keyword_text:
                 # Get match index
@@ -209,7 +207,7 @@ class CompareResume():
                 # Set value to false to speed up matching
                 job_keyword_text[match_index] = False
                 # Set match string to combined value
-                match_value = keyword_tuple[1] + job_keywords[match_index][1]
+                match_value = keyword_tuple[1] + self.__job_keywords[match_index][1]
                 matches[keyword_tuple[0]] = match_value
                 match_points += match_value
                 # Update max points
@@ -459,7 +457,7 @@ class ResumeOptimizer():
             - Iterate over all keywords
                 - Cache/get cached total count (count of keyword in compare string)
                 - Get count weight (#word in section/#word in all sections)
-                - Add final weight ((Rakun2 value * section weight) * count weight)
+                - Add final weight ((YAKE value * section weight) * count weight)
             - Add section weight to total weight
         3. Divide weights
             - Iterate over each keyword - weight value
@@ -500,9 +498,11 @@ class ResumeOptimizer():
                     total_weight += section_weight
             else:
                 continue
+
         # Iterate over each keyword, divide weight
-        for keyword in weighted_dict.keys():
-            weighted_dict[keyword] /= total_weight
+        if total_weight > 0:
+            for keyword in weighted_dict.keys():
+                weighted_dict[keyword] /= total_weight
         # Return final weighted dictionary
         return weighted_dict
     
@@ -611,6 +611,7 @@ class ResumeOptimizer():
         underused = dict(sorted(underused.items(), key=lambda item: item[1], reverse=True))
 
         # Return final results
+        return {"RESULTS": comparison_object}, job_sections, resume_sections, match_percentage
         return {
             "match_percentage": float(match_percentage),
             "underused":dict(itertools.islice(underused.items(), min(len(underused), ResumeOptimizer.MAX_UNDERUSED))),
